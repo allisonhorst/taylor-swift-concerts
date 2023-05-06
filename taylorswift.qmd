@@ -1,0 +1,126 @@
+---
+title: "Taylor Swift Concert History"
+format: html
+editor: visual
+execute:
+  warning: false
+  message: false
+---
+
+```{r}
+library(rvest)
+library(tidyverse)
+library(htmltools)
+```
+
+## Scraping setlist for Taylor Swift concerts
+
+```{r}
+# Placeholder vector: 
+setlistPages <- vector()
+
+# Iterate over: 
+pages2 = seq(1, 96)
+
+# Create URLs: 
+allPageLinks <- for (i in seq_along(pages2)) {
+  setlistPages[i] <- paste0("https://www.setlist.fm/setlists/taylor-swift-3bd6bc5c.html?page=", pages2[i])
+}
+```
+
+```{r}
+
+# Get individual setlist URLs from nested links
+
+setlistLinks <- function(setlistPages) {
+  read_html(setlistPages) |> 
+  html_elements(".contentBox") |>  
+  html_elements("h2") |> 
+  html_elements("a") |> 
+  as.character() |> 
+  as.data.frame() |> 
+  rename(messLink = 1) |> 
+  separate(messLink, into = c('trash', 'urlSlug'), sep = "setlist") |> 
+  filter(!str_detect(trash, pattern = "news")) |> 
+  mutate(urlSlug = str_trim(urlSlug)) |> separate(urlSlug, into = c("slug", "extra"), sep = " ") |> 
+  mutate(slug = str_sub(slug, end = -2)) |> 
+  mutate(fullURL = paste0("https://www.setlist.fm/setlist", slug)) |> 
+    select(fullURL)
+}
+```
+
+```{r}
+# Get vector of all concert links: 
+getAllSetlistLinks <- map_dfr(setlistPages, setlistLinks) |> select(fullURL) |> pull(fullURL)
+```
+
+## Testing getting info for one of these pages
+
+```{r}
+## Practicing getting dates & info from each page, will eventually loop over all concert pages:
+
+# Get dates:
+getDate <- getAllSetlistLinks$fullURL[50] |> read_html() |> html_elements(".dateBlock") |> html_text() |> as.data.frame() |> rename(date = 1) |> mutate(date = str_replace_all(date, "\n", " "))
+
+# Get setlists for each:
+getSetlist <- getAllSetlistLinks$fullURL[90] |> read_html() |> html_elements(".songLabel") |> html_text()
+
+# Get headline (location) for each
+getHeadline <- getAllSetlistLinks$fullURL[50] |> read_html() |> html_elements(".setlistHeadline") |> html_text() |> as.data.frame() |> rename(full = 1) |> separate(full, into = c("general", "venue"), sep = "\nat") |> select(venue) |> separate(venue, into = c("venue", "excess"), sep = "\n") |> select(venue)
+```
+
+## Now access elements for all concerts: 
+
+```{r}
+dateVector <- vector()
+```
+
+```{r}
+for (i in seq_along(getAllSetlistLinks)) {
+  dateVector[i] <- getAllSetlistLinks[i] |> read_html() |> html_elements(".dateBlock") |> html_text()
+}
+```
+
+```{r}
+dateDF <- dateVector |> as.data.frame() |> mutate(date = str_squish(dateVector)) |> select(-dateVector)
+```
+
+```{r}
+dates <- dateVector |> as.data.frame()
+```
+
+```{r}
+songlistVector <- vector()
+```
+
+```{r}
+for (i in seq_along(getAllSetlistLinks)) {
+  songlistVector[i] <- getAllSetlistLinks[i] |> read_html() |> html_elements(".songLabel") |> html_text() |> list()
+}
+```
+
+```{r}
+songs <- cbind(dateVector, songlistVector)
+```
+
+```{r}
+headlineVector <- vector()
+```
+
+```{r}
+for (i in seq_along(getAllSetlistLinks)) {
+  headlineVector[i] <- getAllSetlistLinks[i] |> read_html() |> html_elements(".setlistHeadline") |> html_text()
+}
+```
+
+```{r}
+headlines <- headlineVector |> as.data.frame() |> rename(full = 1) |> separate(full, into = c("general", "venue"), sep = "\nat") |> select(venue) |> separate(venue, into = c("venue", "excess"), sep = "\n") |> select(venue) |> pull()
+```
+
+```{r}
+taylorswift <- cbind(dateVector, songlistVector, headlines) |> as.data.frame() |> unnest(cols = c(dateVector, songlistVector, headlines)) |> rename(songs = songlistVector) |> mutate(songs = str_to_title(songs))
+```
+
+```{r}
+write_csv(taylorswift, "taylorswift.csv")
+```
